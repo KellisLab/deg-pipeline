@@ -14,10 +14,10 @@ new_deseq2 <- function(se,
     cd[[pathology]] = relevel(as.factor(cd[[pathology]]), ref=control)
     if (!is.null(covariates)) {
         available_covariates = covariates[covariates %in% colnames(cd)]
-        covariates = available_covariates[available_covariates %in% colnames(deg.filter.design(cd[c(available_covariates)]))]
+        covariates = available_covariates[available_covariates %in% colnames(filter.design(cd[c(available_covariates)]))]
     }
     design = model.matrix(as.formula(paste0("~", c(pathology, covariates), collapse=" + ")), data=cd)
-    design = deg.filter.design(design)
+    design = filter.design(design)
     dds = DESeq2::DESeqDataSetFromMatrix(X, colData=cd, design=design)
     out = DESeq2::DESeq(dds)
     df = DESeq2::results(out, list(make.names(paste0(pathology, case))), independentFiltering=independentFiltering)
@@ -213,61 +213,4 @@ filter.design <- function(design, max.ncol = -1, remove_linear_combos = FALSE, r
     } else {
         return(TRUE)
     }
-}
-
-#old
-#' @return 
-#' @export
-old_deseq2 <- function(se,
-                       pathology,
-                       case,
-                       control,
-                       sample.col,
-                       covariates=NULL, independentFiltering=as.logical(Sys.getenv("DESEQ2_INDEPENDENT", "TRUE")=="TRUE"),
-                       shrinkage=Sys.getenv("DESEQ2_SHRINKAGE", "ashr"),
-                       prefix="DESeq2") {
-    pb = calculate_qc_metrics(se_make_pseudobulk(se, sample.col), assay="counts", qc_vars=c("mt", "ribo", "pc", "chrX", "chrY"))
-    X = SummarizedExperiment::assays(pb)$counts
-    cd = as.data.frame(SummarizedExperiment::colData(pb))
-    cd[[pathology]] = relevel(as.factor(cd[[pathology]]), ref=control)
-    covariates = covariates[covariates %in% colnames(cd)]
-    covariates = covariates[covariates %in% colnames(deg.filter.design(cd[c(covariates)]))]
-    design = model.matrix(as.formula(paste0("~", c(pathology, covariates), collapse=" + ")),
-                          data=cd)
-    design = deg.filter.design(design)
-    dds = DESeq2::DESeqDataSetFromMatrix(
-                      X,
-                      colData=cd,
-                      design=design)
-    out = DESeq2::DESeq(dds)
-    df = DESeq2::results(out, list(make.names(paste0(pathology, case))), independentFiltering=independentFiltering)
-    rd = as.data.frame(SummarizedExperiment::rowData(se))
-    rd[[paste0(prefix, "_log2FC")]] = NA
-    rd[rownames(df), paste0(prefix, "_log2FC")] = df$log2FoldChange
-    rd[[paste0(prefix, "_FDR")]] = NA
-    rd[rownames(df), paste0(prefix, "_FDR")] = df$padj
-    rd[[paste0(prefix, "_stat")]] = NA
-    rd[rownames(df), paste0(prefix, "_stat")] = df$stat
-    if (shrinkage %in% c("apeglm", "ashr")) {
-        cat("From coefficients\n")
-        cat("\t", paste0(DESeq2::resultsNames(out), collapse=","), "\n")
-        if (any(grepl(make.names(paste0(pathology, case)), DESeq2::resultsNames(out)))) {
-            IDX = grep(make.names(paste0(pathology, case)), DESeq2::resultsNames(out))[1]
-        } else {
-            IDX = 1
-        }
-        cat("Shrinking", DESeq2::resultsNames(out)[IDX], "\n")
-        dfs <- DESeq2::lfcShrink(out, res=df, coef=DESeq2::resultsNames(out)[IDX], type=shrinkage)
-        rd[rownames(dfs), paste0(prefix, "_", shrinkage, "_log2FC")] <- dfs$log2FoldChange
-    }
-    SummarizedExperiment::rowData(se) <- rd
-    
-    
-    if ("deg" %in% names(S4Vectors::metadata(se))) {
-        pval <- df$pvalue
-        pval[pval < 1e-300] <- 1e-300
-        pval[is.na(df$padj)] <- NA
-        S4Vectors::metadata(se)$deg[[paste0(prefix, "_harmonic_mean_pvalue")]] <- 1./mean(1./pval, na.rm=TRUE)
-    }
-    return(se)
 }
